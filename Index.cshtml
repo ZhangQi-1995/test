@@ -1,0 +1,483 @@
+﻿@{
+    ViewBag.Title = "看板页面";
+    Layout = null;
+}
+<style>
+
+    html, body, .container {
+        width: 100%;
+        height: 100%;
+        margin: 0
+    }
+
+
+    .inputcolor { /*WD20200221*/
+        width: 80px;
+        height: 30px;
+        border: 1px solid #fff;
+        border-radius: 4px;
+        background-color: blue;
+        text-indent: 20px;
+    }
+</style>
+
+<script src="~/Content/Scripts/jquery/jquery-3.3.1.min.js"></script>
+@*<script src="~/Content/Scripts/jquery/jquery-1.8.2.min.js"></script>
+
+    <link href="~/Content/Scripts/bootstrap-4.1.1/css/bootstrap.css" rel="stylesheet" />
+    <script src="~/Content/Scripts/bootstrap-4.1.1/js/bootstrap.min.js"></script>*@
+<link href="~/Content/Scripts/bootstrap-3.3.7-dist/css/bootstrap.min.css" rel="stylesheet" />
+<script src="~/Content/Scripts/bootstrap-3.3.7-dist/js/bootstrap.min.js"></script>
+
+<link href="~/Content/Scripts/jsxgraph/jsxgraph.css" rel="stylesheet" />
+<link href="~/Content/Styles/learunui-framework.css" rel="stylesheet" />
+<link href="~/Content/Styles/learunui-accordion.css" rel="stylesheet" />
+<link href="~/Content/Styles/bootstrap-colorpicker.css" rel="stylesheet" />
+<script src="~/Content/Scripts/learunui-framework.js"></script>
+<script src="~/Content/Scripts/jsxgraph/jsxgraphcore.js"></script>
+<script src="~/Content/Scripts/jsxgraph/GeonextReader.js"></script>
+<script src="~/Content/Scripts/bootstrap-colorpicker.js"></script>
+<script src="~/AspxWeb/Gantt/Grid/GridE.js"></script>
+
+
+
+
+
+
+<script type="text/javascript">
+
+    var BillID = GetQuery('BillID'); //1快速显示   2显示设置
+
+    $(function () {
+        JXG.Options.axis.ticks.drawLabels = false;
+        JXG.Options.axis.ticks.strokeWidth = 0;
+        //获取看板用户在线时间,超过 时间自动下线
+
+        AjaxJson('/CommonModule/ZhiQiYun_KanBanShow/IsKanBan', {}, function (data) {
+            if (data && data.IsKanBan == 'true') { } else {
+                AjaxJson('/CommonModule/ZhiQiYun_KanBanShow/GetOutTime', {}, function (data) {
+                    if (data && data.OutTime) {
+                        setTimeout(function () {
+                            if (data.OutTime <= 0) {
+                                data.OutTime = 1000 * 60 * 60;
+                            }
+                            window.opener = null;
+                            window.open('', '_self');
+                            window.close();
+                        }, data.OutTime);
+                    } else {
+                        setTimeout(function () {
+                            window.opener = null;
+                            window.open('', '_self');
+                            window.close();
+                        }, 1000 * 60 * 60);
+                    }
+                });
+            }
+        });
+        //快速显示
+        if (!BillID) {
+            AjaxJson('/CommonModule/ZhiQiYun_KanBanShow/GetFID', {}, function (data) {
+                if (data) {
+                    BillID = data;
+                    initPage();
+                }
+            });
+        } else {
+            initPage();
+        }
+        setTimeout(function () {
+            var obj = document.getElementById('clickdiv');
+            if (document.all) {
+                obj.click();
+            } else {
+                var e = document.createEvent('MouseEvents');
+                e.initEvent('click', true, true);
+                obj.dispatchEvent(e);
+            }
+            setTimeout(function () { arguments.callee }, 1000 * 60);;
+        }, 1000 * 60);
+    })
+    function initPage() {
+        getDeviceData();
+        startChangeDevice();
+    }
+    /**
+     * 屏幕最多放几个图片*/
+    var maxScreenDeviceCount = 4;
+    var deviceCount = 0;
+    var deviceIndex = 1;
+    var changeSpan = 0.5 * 60 * 1000;
+    var isInit = false;
+    function startChangeDevice() {
+        if (isInit) {
+            setTimeout(function () { changeDevice(); }, changeSpan);
+        } else {
+            setTimeout(function () { startChangeDevice(); }, 1000);
+        }
+    }
+    /**
+     * 切换下一批设备*/
+    function changeDevice() {
+        //所有 /
+        var allpage = Math.ceil(deviceCount / maxScreenDeviceCount);
+        if (allpage > deviceIndex) {
+            deviceIndex++;
+        } else {
+            deviceIndex = 1;
+        }
+        window.clearTimeout();
+        getDeviceData();
+        setTimeout(function () { changeDevice(); }, changeSpan);
+    }
+    function getDeviceData() {
+        //快速显示
+        AjaxJson('/CommonModule/ZhiQiYun_KanBanShow/GetKanBanShuwDevice', { index: deviceIndex, FID: BillID, maxScreenDeviceCount: maxScreenDeviceCount }, function (data) {
+            deviceCount = data.AllCount;
+            isInit = true;
+            changeSpan = data.change;
+            if (deviceCount != 0) {
+                initHtml(data.Data);
+                for (var i = 0, length = data.Data.length; i < length; i++) {
+                    initChart(data.Data[i], 'chart_' + i, data.Setting);
+
+                }
+                //只在换页的时候刷新
+                //setTimeout(function () { getDeviceData(); }, 0.2 * 60 * 1000);
+            } else {
+                //如果没有设备,默认五分钟刷新一次
+                setTimeout(function () { getDeviceData(); }, 5 * 60 * 1000);
+                //setTimeout(getDeviceData(), 5 * 60 * 1000);
+            }
+        });
+    }
+    var charts = {};
+    //创建坐标轴
+    function createTicks(bord, box) {
+        var axX = bord.create('line', [[0, 0], [box[2], 0]], { strokeColor: 'black', strokeWidth: 1, fixed: true });
+        bord.create('ticks', [axX, box[2]], { minorTicks: 0, majorHeight: 10, minorHeight: 4, fixed: true });
+        var axY = bord.create('line', [[0, 0], [0, box[1]]], { strokeColor: 'black', strokeWidth: 1, fixed: true });
+        bord.create('ticks', [axY, box[1]], { minorTicks: 0, majorWidth: 10, minorWidth: 4, fixed: true });
+
+    }
+    /**
+     * 画图
+     *  data 数据
+     *  id div id
+     */
+    function initChart(row, id) {
+        AjaxJson('/CommonModule/ZhiQiYun_KanBanShow/GetChartData', {
+            device: row.DName, jp: row.FJP,
+            timeSpan: row.FSpan, cypc: row.FCYPC,
+            F_WORK_VOLUME: row.FAllWork, F_BEAT_MAX: row.FMax,
+            F_BEAT_TIME: row.FAVGJP, F_LESS_MIN: row.FLessMin,
+            F_TOTAL_DOWNTIME: row.FAllStop, F_MIN: row.FMin,
+            F_DESIGNATED_START: row.FStartTime,
+            FLLJP: row.FLLJP,
+            FTJTJ: row.FTJTJ,
+            FTJJD: row.FTJJD
+
+        },
+            function (data) {
+                try {
+                    if (charts[id]) {
+                        JXG.JSXGraph.freeBoard(charts[id]);
+                    }
+                } catch (e) {
+
+                }
+                var maxYValue = getMaxValue(data.Data, "Value");
+                if (maxYValue < row.FMax) {
+                    maxYValue = row.FMax;
+                }
+                if (maxYValue < 0) {
+                    maxYValue = 1;
+                }
+                var maxXValue = data.Data.length;
+                if (maxXValue == 0) {
+                    maxXValue = 1;
+                }
+                var YTicks = createTicksY(maxYValue, 0, 5);
+                var boundingbox = [maxXValue * -0.05, YTicks[0] * 1.05, maxXValue + 3, YTicks[0] * -0.05];
+                //var brd = JXG.JSXGraph.initBoard(id, { boundingbox: boundingbox, axis: true, showNavigation: false });
+                var brd = JXG.JSXGraph.initBoard(id, { boundingbox: boundingbox, axis: true, showNavigation: false, grid: false });
+                createTicksTextY(brd, boundingbox, YTicks[2], 5);
+                charts[id] = brd;
+                brd.create('text', [boundingbox[0], boundingbox[1] * 0.96, data.YUnit], { fontSize: 12, fixed: true });
+                brd.create('text', [boundingbox[2] * 0.95, boundingbox[3] * 0.7, data.XUnit], { fontSize: 12, fixed: true });
+                //横轴时间
+                var unitX = data.Data.length / (data.Times.length - 1);
+                for (var i = 0, length = data.Times.length - 1; i < length; i++) {
+                    brd.create('text', [unitX * i, boundingbox[3] * 0.7, data.Times[i]], { fontSize: 12, fixed: true });
+                }
+                var points = [];
+                for (var i = 0, length = data.Data.length; i < length; i++) {
+                    points.push([i + 1, data.Data[i].Value]);
+                }
+                for (var i = 0, length = data.Data.length - 1; i < length; i++) {
+                    //brd.create('line', [points[i], points[i + 1]], { straightFirst: false, straightLast: false, strokeWidth: 2 });
+                    var p1 = points[i];
+                    var mp = (data.Data[i + 1].Value - data.Data[i].Value) / 2;
+                    var p2 = [i + 1.5, data.Data[i].Value + mp];
+                    var p3 = points[i + 1];
+                    if ((p1[1] == 0 || p3[1] == 0) && data.YUnit == '秒/次') {
+                        continue;
+                    }
+                    var line1 = brd.create('line', [p1, p2], { straightFirst: false, straightLast: false, strokeWidth: 2, fixed: true });
+                    var line2 = brd.create('line', [p2, p3], { straightFirst: false, straightLast: false, strokeWidth: 2, fixed: true });
+                    line1.rendNode.PointData = data.Data[i];
+                    line2.rendNode.PointData = data.Data[i + 1];
+                    JXG.addEvent(line1.rendNode, 'mouseover', mouseover, line1);
+                    JXG.addEvent(line1.rendNode, 'mouseout', mouseout, line1);
+                    JXG.addEvent(line2.rendNode, 'mouseover', mouseover, line2);
+                    JXG.addEvent(line2.rendNode, 'mouseout', mouseout, line2);
+
+                }
+                //画辅助线
+                brd.create('line', [[0, row.FMin], [maxXValue + 2, row.FMin]], { straightFirst: false, straightLast: false, strokeWidth: 2, dash: 2, strokeColor: 'red', fixed: true });
+                brd.create('text', [boundingbox[0] * 0.7, row.FMin, row.FMin], { fontSize: 12, fixed: true });
+                brd.create('line', [[0, row.FMax], [maxXValue + 2, row.FMax]], { straightFirst: false, straightLast: false, strokeWidth: 2, dash: 2, strokeColor: 'yellow', fixed: true });
+                brd.create('text', [boundingbox[0] * 0.7, row.FMax, row.FMax], { fontSize: 12, fixed: true });
+
+                writeLabel(row, id, data);
+
+                //创建第二个Y轴
+                brd.create('line', [[boundingbox[2] * 0.98, boundingbox[3]], [boundingbox[2] * 0.98, boundingbox[1]]], { straightFirst: false, straightLast: false, strokeWidth: 1, strokeColor: 'black' });
+                brd.create('text', [boundingbox[2] * 0.9, boundingbox[1] * 0.95, "分钟"], { fontSize: 12, fixed: true });
+
+                var maxStopSeconds = getMaxValue(data.Data, "StopMin");
+                if (maxStopSeconds == 0) {
+                    maxStopSeconds = 1
+                }
+                var YTicksStopSeconds = createTicksY(maxStopSeconds, 0, 5);
+                var bl = YTicks[0] / YTicksStopSeconds[0];
+                createTicksTextYStopSeconds(brd, boundingbox, YTicksStopSeconds[2], 5, bl);
+                var width = 0.5;
+                for (var i = 0, length = data.Data.length; i < length; i++) {
+                    var chatsshut = brd.createElement('chart', [[i + 1], [data.Data[i].StopMin * bl]],
+                        {
+                            chartStyle: 'bar',
+                            width: width,
+                            labels: '',
+                            shadow: false,
+                            colors: ['#3779B6'],
+                        });
+                }
+
+            });
+    }
+
+    function createTicksTextYStopSeconds(bord, boundingbox, tick, count, bl) {
+        //显示值
+        var val = tick;
+        //实际值
+        var  unit = tick * bl;
+        var width = (boundingbox[2] / 100).toFixed(2);
+        for (var i = 1, length = count; i <= length; i++) {
+            var num = i * unit;
+            var numval = i * val;
+            bord.create('text', [boundingbox[2] * 0.95, num, numval], { fontSize: 12, anchorX: 'Right' });
+            bord.create('line', [[boundingbox[2] * 0.98 - width, num], [boundingbox[2] * 0.98, num]], { straightFirst: false, straightLast: false, strokeWidth: 1, strokeColor: 'black' });
+        }
+    }
+    var mouseover = function (event) {
+        var e = event || window.event;
+        $node = this.rendNode;
+        var id = 'tip';
+        if ($("#" + id).length <= 0) {
+            $("body").append('<div id="' + id + '" style="position:fixed;z-index:1000"></div>');
+        }
+        var PointData = $node.PointData;
+        $("#" + id).html(getInfoDiv(PointData));
+        var x = e.clientX + 15;
+        var y = e.clientY + 15;
+        $("#" + id).css("left", x);
+        $("#" + id).css("top", y);
+        var w = $("#" + id).width();
+        var h = $("#" + id).height();
+        //如果超过屏幕右边就放到左边
+        if (x + w > $(window).width()) {
+            $("#" + id).css("left", e.clientX - 30 - w);
+        }
+        //如果在底面就放到上面
+        if (y + h > $(window).height()) {
+            $("#" + id).css("top", y - 30 - h);
+        }
+        $("#" + id).show();
+    }
+    function getInfoDiv(PointData) {
+        var html = '';
+        if (PointData) {
+            html += '<div ';
+            html += 'class="alert ';
+            html += 'alert-info';
+            html += '"';
+            html += '>';
+            //显示信息
+            html += '<h5>开始时间:' + PointData.Start + '</h5>';
+            html += '<h5>结束时间:' + PointData.End + '</h5>';
+            html += '<h5>节拍:' + PointData.Value + '</h5>';
+            html += '</div>';
+            return html;
+        }
+    }
+    var mouseout = function (event) {
+        var id = 'tip';
+        if ($("#" + id).length > 0) {
+            $("#" + id).remove();
+            //$("#tip").html("");
+            //$("#tip").hide();
+        }
+    }
+    function createTicksY(max, min, count) {
+        var corstep = (max - min) / count;
+        var temp;
+        if (Math.pow(10, Math.floor(Math.log(corstep) / Math.log(10))) == corstep) {
+            temp = Math.pow(10, Math.floor(Math.log(corstep) / Math.log(10)));
+        } else {
+            temp = Math.pow(10, Math.floor(Math.log(corstep) / Math.log(10)) + 1);
+        }
+        var tmpstep = corstep / temp;
+        if (tmpstep >= 0 && tmpstep <= 0.1) {
+            tmpstep = 0.1;
+        } else if (tmpstep >= 0.100001 && tmpstep <= 0.2) {
+            tmpstep = 0.2;
+        } else if (tmpstep >= 0.200001 && tmpstep <= 0.25) {
+            tmpstep = 0.25;
+        } else if (tmpstep >= 0.250001 && tmpstep <= 0.5) {
+            tmpstep = 0.5;
+        } else {
+            tmpstep = 1;
+        }
+        tmpstep = tmpstep * temp;
+        if (Math.floor(min / tmpstep) != (min / tmpstep)) {
+            if (min < 0) {
+                min = (-1) * Math.ceil(Math.abs(min / tmpstep)) * tmpstep;
+            } else {
+                min = Math.floor(Math.abs(min / tmpstep)) * tmpstep;
+            }
+        }
+        max = Math.floor(max / tmpstep + 1) * tmpstep;
+        var tmpnumber = (max - min) / tmpstep;
+        if (tmpnumber < count) {
+            var extranumber = count - tmpnumber;
+            tmpnumber = count;
+            if (extranumber % 2 == 0) {
+                max = max + tmpstep * Math.floor(extranumber / 2);
+            } else {
+                max = max + tmpstep * Math.floor(extranumber / 2 + 1);
+            }
+            min = min - tmpstep * Math.floor(extranumber / 2);
+        }
+        count = tmpnumber;
+        return [max, min, tmpstep];
+    }
+    function createTicksTextY(bord, boundingbox, tick, count) {
+
+        var unit = tick;
+        var width = (boundingbox[2] / 100).toFixed(2);
+        for (var i = 1, length = count; i <= length; i++) {
+            var num = i * unit;
+            bord.create('text', [width, num, num], { fontSize: 12, });
+            bord.create('line', [[0, num], [width, num]], { straightFirst: false, straightLast: false, strokeWidth: 1, strokeColor: 'black' });
+        }
+    }
+    function writeLabel(row, id, data) {
+        var html = '';
+        if (row.FAllWork == '1') {
+            html += '<span style="margin:10px;line-height:2" class="label label-info">工作总量:' + data.WorkAllCount + '</span>'
+        }
+        if (row.FMaxJP == '1') {
+            html += '<span style="margin:10px;line-height:2" class="label label-info">节拍Max:' + data.JPMax + '</span>'
+        }
+        if (row.FAVGJP == '1') {
+            html += '<span style="margin:10px;line-height:2" class="label label-info">平均节拍:' + data.JPAVG + '</span>'
+        }
+        if (row.FLessMin == '1') {
+            if (row.FJP == '秒每个动作') {
+                html += '<span style="margin:10px;line-height:2" class="label label-info">大于Max:' + data.LessMinCount + "分钟" + '</span>'
+            } else {
+                html += '<span style="margin:10px;line-height:2" class="label label-info">小于Min:' + data.LessMinCount + "分钟" + '</span>'
+            }
+            //html += '<span style="margin:10px" class="label label-info">小于Min:' + data.LessMinCount + '</span>'
+        }
+        if (row.FAllStop == '1') {
+            html += '<span style="margin:10px;line-height:2" class="label label-info">停机合计:' + data.StopCount + "分钟" + '</span>'
+        }
+        $('#' + id).parent().next().html(html);
+    }
+    function getMaxValue(data, prop) {
+        var val = data[0][prop];
+        for (var i = 0, length = data.length; i < length; i++) {
+            if (val < data[i][prop]) {
+                val = data[i][prop];
+            }
+        }
+        return val;
+    }
+    var dataLength = 20;
+    /**
+     * 构建页面
+     *  data
+     */
+    function initHtml(data) {
+        if (data) {
+            var col = 12;
+            var hei = 100;
+            if (data.length == 1) {
+                dataLength = 30;
+                col = 12; hei = 100;
+            } else if (data.length == 2 || data.length == 3 || data.length == 4) {
+                dataLength = 20;
+                col = 6;
+                if (data.length == 2) {
+                    hei = 100;
+                } else {
+                    hei = 50;
+                }
+            } else if (data.length == 5 || data.length == 6) {
+                dataLength = 10;
+                col = 4; hei = 50;
+            }
+            var html = '<div class="row clearfix" style="height:100%">';
+            for (var i = 0, length = data.length; i < length; i++) {
+                html += '<div class="col-lg-' + col + ' col-md-' + col + ' column" style="height:' + hei + '%;padding-top:10px">';
+                //html += '<div  style="height:100%;width:100%">';
+                html += '<div class="row clearfix"   style="height:100%;width:100%;margin:0">';
+                html += '<div class="col-lg-12 col-md-12 column"  style="height:100%;width:100%">';
+                html += '<div class="panel  panel-primary"  style="height:100%;width:100%">';
+                html += '<div class="panel-heading"  style="height:10%;width:100%">';
+                html += '<h3 class="panel-title">';
+                html += data[i].DName;
+                html += '</h3>';
+                html += '</div >';
+                html += '<div class="panel-body" style="height:70%;width:100%">';
+
+                html += '<div id="chart_' + i + '" style="height:100%;width:100%">';
+                html += '</div >';
+                html += '</div >';
+                html += '<div class="panel-footer" style="height:20%;width:100%;font-size:20px">';
+                //html += '<div  style="height:100%;width:100%">';
+                //html += '<span style="margin:10px" class="label label-info">最大节拍:500</span>';
+                //html += '<span style="margin:10px" class="label label-info">平均节拍</span>';
+                //html += '</div >';
+
+                html += '</div >';
+                html += '</div >';
+                html += '</div >';
+                html += '</div >';
+                html += '</div >';
+            }
+            html += '</div >';
+            $('.container-fluid').html(html);
+        }
+    }
+</script>
+
+
+
+<div class="container-fluid" id="clickdiv" style="margin:0;height:100%;color:white">
+</div>
+
+
+
